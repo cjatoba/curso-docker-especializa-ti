@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  app: #Service PHP com imagem personalizada
+    build: #Parâmetros para criação de uma imagem personalizada
+      args: #Argumentos que serão enviados para dentro do Dockerfile
+        user: cjatoba
+        uid: 1000
+      context: .
+      dockerfile: Dockerfile #Nome do arquivo Dockerfile, será realizada uma busca por este nome no diretório configurado no parâmetro context
+    image: cjatoba/laravel-app
+    working_dir: /var/www/
+    volumes:
+      - ./:/var/www/
+    restart: unless-stopped #só restarta se o container parar
+    depends_on:
+      - redis
+      - queue
+    networks:
+      - docker-laravel
+
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - 80:80
+    volumes:
+      - ./:/var/www
+      - ./docker/nginx/:/etc/nginx/conf.d/
+    networks:
+      - docker-laravel
+
+  mysql:
+    image: mysql:5.7.22
+    restart: always
+    ports:
+      - 3307:3306 #Em produção o ideal é não expor as portas pois elas já ficam visíveis entre os caontainers, expor somente para realizar o acesso externo enquanto estiver em desenvolvimento
+    volumes:
+      - ./.docker/mysql:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - docker-laravel
+
+  redis:
+    image: redis
+    networks:
+      - docker-laravel
+    #Não disponibilizar as portas do redis por segurança, para evitar por exemplo um acesso mal intensionado para mineração de criptomoeda, pois como está na mesma network os container conseguem escutar qualquer porta pois estão na mesma rede
+
+  # queue - container para criar e gerenciar a fila de jobs
+  queue:
+    build: #Parâmetros para criação de uma imagem personalizada
+        args: #Argumentos que serão enviados para dentro do Dockerfile
+            user: cjatoba
+            uid: 1000
+        context: .
+        dockerfile: Dockerfile #Nome do arquivo Dockerfile, será realizada uma busca por este nome no diretório configurado no parâmetro context
+    restart: always
+    command: "php artisan queue:work" #Comando que será executado dentro do container
+    volumes:
+        - ./:/var/www
+    depends_on: #Dependências para que o container rode, neste caso o container queue só será executado se o container redis funcionar
+        - redis
+    networks:
+        - docker-laravel
+
+networks:
+  docker-laravel:
+    driver: bridge
